@@ -87,3 +87,44 @@ const allLinks = document.querySelectorAll("a, button, span, p, div");  let flag
 
 detectHiddenLinks();
 setTimeout(detectHiddenLinks, 2000);
+
+function detectFakeScarcity() {
+  // Common scarcity/urgency phrases used to pressure buyers
+  const scarcityPatterns = [
+    /only\s+\d+\s+left/i,
+    /\d+\s+people\s+(are\s+)?(viewing|looking at|bought)/i,
+    /almost\s+(gone|sold out)/i,
+    /selling\s+fast/i,
+    /hurry,?\s+(limited|few)\s+(stock|left|remaining)/i,
+    /in\s+high\s+demand/i
+  ];
+
+  const allElements = document.querySelectorAll("body *");
+  let flaggedCount = 0;
+
+  allElements.forEach((el) => {
+    const directText = Array.from(el.childNodes)
+      .filter((node) => node.nodeType === Node.TEXT_NODE)
+      .map((node) => node.textContent)
+      .join(" ")
+      .trim();
+
+    if (!directText || el.dataset.dpdFlagged) return;
+
+    const matched = scarcityPatterns.some((pattern) => pattern.test(directText));
+
+    if (matched) {
+      el.style.outline = "3px solid crimson";
+      el.title = "⚠️ Possible fake scarcity/urgency claim — verify if this is real";
+      el.dataset.dpdFlagged = "true";
+      flaggedCount++;
+    }
+  });
+
+  if (flaggedCount > 0) {
+    console.log(`Dark Pattern Detector: found ${flaggedCount} scarcity/urgency claim(s)`);
+  }
+}
+
+detectFakeScarcity();
+setTimeout(detectFakeScarcity, 2000);
