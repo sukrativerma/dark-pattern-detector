@@ -4,6 +4,7 @@
   "version": "0.1",
   "description": "Detects manipulative UX patterns on websites",
   "permissions": ["activeTab", "scripting"],
+  "host_permissions": ["http://localhost:3001/*"],
   "action": {
     "default_popup": "popup.html"
   },

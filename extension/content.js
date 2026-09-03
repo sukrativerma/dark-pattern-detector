@@ -101,8 +101,27 @@ function runAllDetectors() {
   }
 }
 
+function sendFindingsToBackend() {
+  if (findings.length === 0) return; // don't bother sending empty scans
+
+  fetch("http://localhost:3001/scans", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      url: window.location.href,
+      findings: findings
+    })
+  })
+    .then((res) => res.json())
+    .then((data) => console.log("Scan saved to backend:", data))
+    .catch((err) => console.error("Failed to save scan:", err));
+}
+
 runAllDetectors();
-setTimeout(runAllDetectors, 2000);
+setTimeout(() => {
+  runAllDetectors();
+  sendFindingsToBackend();
+}, 2000);
 
 // Listen for the popup asking "what did you find?"
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
