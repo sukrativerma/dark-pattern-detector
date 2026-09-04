@@ -12,7 +12,7 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     summaryEl.textContent = `⚠️ ${response.count} pattern(s) found on this page:`;
     response.findings.forEach((finding) => {
       const li = document.createElement("li");
-      li.textContent = finding;
+      li.textContent = `[${finding.confidence.toUpperCase()}] ${finding.type}: ${finding.reason}`;
       findingsEl.appendChild(li);
     });
   });

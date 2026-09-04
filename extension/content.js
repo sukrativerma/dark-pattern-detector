@@ -1,16 +1,36 @@
 console.log("Dark Pattern Detector is running on this page");
 
-// Shared list of human-readable findings, so the popup can display them
-let findings = [];
+let findings = []; // now stores objects instead of plain strings
+
+function addFinding(type, confidence, reason) {
+  findings.push({ type, confidence, reason });
+}
 
 function detectPreCheckedBoxes() {
   const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+  const lowRiskKeywords = ["terms", "policy", "required", "agree"];
+  const highRiskKeywords = ["insurance", "subscribe", "newsletter", "add-on", "protection", "warranty"];
+
   checkboxes.forEach((box) => {
     if (box.checked && !box.dataset.dpdFlagged) {
-      box.style.outline = "3px solid red";
-      box.title = "⚠️ This box was pre-checked for you — a common dark pattern";
+      // Try to read nearby label text for context
+      const label = box.closest("label")?.textContent?.toLowerCase() || "";
+
+      let confidence = "medium";
+      let reason = "Pre-checked checkbox with unclear context";
+
+      if (highRiskKeywords.some((kw) => label.includes(kw))) {
+        confidence = "high";
+        reason = "Pre-checked box likely adds a paid extra or subscription without asking";
+      } else if (lowRiskKeywords.some((kw) => label.includes(kw))) {
+        confidence = "low";
+        reason = "Pre-checked box appears to be a standard required agreement";
+      }
+
+      box.style.outline = confidence === "low" ? "2px dashed gray" : "3px solid red";
+      box.title = `⚠️ ${reason}`;
       box.dataset.dpdFlagged = "true";
-      findings.push("Pre-checked checkbox found");
+      addFinding("Pre-checked checkbox", confidence, reason);
     }
   });
 }
@@ -27,10 +47,25 @@ function detectCountdownTimers() {
       .trim();
 
     if (timePattern.test(directText) && !el.dataset.dpdFlagged) {
-      el.style.outline = "3px solid orange";
-      el.title = "⚠️ Countdown timer detected — check if it's real urgency or fake pressure";
+      // Store first-seen value to detect resets on reload (basic version using localStorage)
+      const key = "dpd_timer_" + window.location.hostname;
+      const seenBefore = localStorage.getItem(key);
+      const currentMatch = directText.match(timePattern)[0];
+
+      let confidence = "low";
+      let reason = "Countdown timer present — could be a real, time-limited offer";
+
+      if (seenBefore && seenBefore === currentMatch) {
+        confidence = "high";
+        reason = "Countdown timer shows the same time as your last visit — likely fake urgency";
+      }
+
+      localStorage.setItem(key, currentMatch);
+
+      el.style.outline = confidence === "low" ? "2px dashed gray" : "3px solid orange";
+      el.title = `⚠️ ${reason}`;
       el.dataset.dpdFlagged = "true";
-      findings.push("Countdown timer detected");
+      addFinding("Countdown timer", confidence, reason);
     }
   });
 }
@@ -50,10 +85,15 @@ function detectHiddenLinks() {
       const isLowContrast = style.color === style.backgroundColor;
 
       if (isTiny || isLowContrast) {
+        const confidence = isTiny && isLowContrast ? "high" : "medium";
+        const reason = isTiny && isLowContrast
+          ? "Cancel/unsubscribe link is both tiny and low-contrast — likely deliberately hidden"
+          : "Cancel/unsubscribe link is harder to notice than it should be";
+
         el.style.outline = "3px solid purple";
-        el.title = "⚠️ Possibly hidden cancel/unsubscribe link — tiny or low-contrast text";
+        el.title = `⚠️ ${reason}`;
         el.dataset.dpdFlagged = "true";
-        findings.push("Hidden/low-contrast link found");
+        addFinding("Hidden link", confidence, reason);
       }
     }
   });
@@ -82,10 +122,14 @@ function detectFakeScarcity() {
 
     const matched = scarcityPatterns.some((pattern) => pattern.test(directText));
     if (matched) {
+      // Scarcity claims are inherently hard to verify without repeated visits — default medium
+      const confidence = "medium";
+      const reason = "Urgency/scarcity claim found — verify if the number or claim is real";
+
       el.style.outline = "3px solid crimson";
-      el.title = "⚠️ Possible fake scarcity/urgency claim — verify if this is real";
+      el.title = `⚠️ ${reason}`;
       el.dataset.dpdFlagged = "true";
-      findings.push("Fake scarcity/urgency claim found");
+      addFinding("Fake scarcity claim", confidence, reason);
     }
   });
 }
@@ -102,7 +146,7 @@ function runAllDetectors() {
 }
 
 function sendFindingsToBackend() {
-  if (findings.length === 0) return; // don't bother sending empty scans
+  if (findings.length === 0) return;
 
   fetch("http://localhost:3001/scans", {
     method: "POST",
@@ -123,7 +167,6 @@ setTimeout(() => {
   sendFindingsToBackend();
 }, 2000);
 
-// Listen for the popup asking "what did you find?"
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "GET_FINDINGS") {
     sendResponse({ count: findings.length, findings: findings });
