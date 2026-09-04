@@ -1,5 +1,7 @@
 const express = require("express");
 const cors = require("cors");
+const { Pool } = require("pg");
+require("dotenv").config();
 
 const app = express();
 const PORT = 3001;
@@ -7,38 +9,45 @@ const PORT = 3001;
 app.use(cors());
 app.use(express.json());
 
-// Temporary in-memory storage — resets every time the server restarts
-// We'll swap this for a real database soon
-let scans = [];
-let nextId = 1;
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false } // Supabase requires SSL
+});
 
 app.get("/", (req, res) => {
   res.send("Dark Pattern Detector backend is running");
 });
 
 // Save a new scan
-app.post("/scans", (req, res) => {
+app.post("/scans", async (req, res) => {
   const { url, findings } = req.body;
 
   if (!url || !findings) {
     return res.status(400).json({ error: "url and findings are required" });
   }
 
-  const scan = {
-    id: nextId++,
-    url,
-    findings,
-    timestamp: new Date().toISOString()
-  };
-
-  scans.push(scan);
-  console.log("New scan saved:", scan);
-  res.status(201).json(scan);
+  try {
+    const result = await pool.query(
+      "INSERT INTO scans (url, findings) VALUES ($1, $2) RETURNING *",
+      [url, JSON.stringify(findings)]
+    );
+    console.log("New scan saved:", result.rows[0]);
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error("Database error:", err);
+    res.status(500).json({ error: "Failed to save scan" });
+  }
 });
 
 // Get all scans
-app.get("/scans", (req, res) => {
-  res.json(scans);
+app.get("/scans", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM scans ORDER BY created_at DESC");
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Database error:", err);
+    res.status(500).json({ error: "Failed to fetch scans" });
+  }
 });
 
 app.listen(PORT, () => {
