@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip } from "recharts";
 
 function confidenceStyle(confidence) {
   switch (confidence) {
@@ -13,6 +14,26 @@ function confidenceStyle(confidence) {
     default:
       return { border: "border-gray-600/40", text: "text-gray-500", bg: "bg-gray-600/10", label: "Unscored" };
   }
+}
+
+function calculateStats(scans) {
+  const typeCounts = {};
+  const confidenceCounts = { high: 0, medium: 0, low: 0 };
+
+  scans.forEach((scan) => {
+    (scan.findings || []).forEach((finding) => {
+      if (typeof finding === "object" && finding !== null) {
+        typeCounts[finding.type] = (typeCounts[finding.type] || 0) + 1;
+        if (confidenceCounts[finding.confidence] !== undefined) {
+          confidenceCounts[finding.confidence]++;
+        }
+      }
+    });
+  });
+
+  const chartData = Object.entries(typeCounts).map(([type, count]) => ({ type, count }));
+
+  return { chartData, confidenceCounts };
 }
 
 export default function Home() {
@@ -38,6 +59,8 @@ export default function Home() {
     0
   );
 
+  const { chartData, confidenceCounts } = calculateStats(scans);
+
   return (
     <main className="min-h-screen px-6 py-12">
       <div className="max-w-2xl mx-auto">
@@ -47,6 +70,40 @@ export default function Home() {
             {scans.length} page{scans.length !== 1 ? "s" : ""} scanned · {totalFindings} pattern{totalFindings !== 1 ? "s" : ""} flagged
           </p>
         </div>
+
+        {!loading && !error && scans.length > 0 && (
+  <div className="mb-10 grid grid-cols-3 gap-3">
+    <div className="border border-gray-800 rounded-lg p-4 bg-[#151821]">
+      <div className="text-2xl font-semibold text-red-400">{confidenceCounts.high}</div>
+      <div className="text-xs text-gray-500 mt-1">High risk</div>
+    </div>
+    <div className="border border-gray-800 rounded-lg p-4 bg-[#151821]">
+      <div className="text-2xl font-semibold text-amber-400">{confidenceCounts.medium}</div>
+      <div className="text-xs text-gray-500 mt-1">Medium risk</div>
+    </div>
+    <div className="border border-gray-800 rounded-lg p-4 bg-[#151821]">
+      <div className="text-2xl font-semibold text-gray-400">{confidenceCounts.low}</div>
+      <div className="text-xs text-gray-500 mt-1">Low risk</div>
+    </div>
+  </div>
+)}
+
+{!loading && !error && chartData.length > 0 && (
+  <div className="mb-10 border border-gray-800 rounded-lg p-4 bg-[#151821]">
+    <h2 className="text-sm text-gray-400 mb-4">Pattern types found</h2>
+    <ResponsiveContainer width="100%" height={200}>
+      <BarChart data={chartData}>
+        <XAxis dataKey="type" tick={{ fill: "#8B92A3", fontSize: 11 }} />
+        <YAxis tick={{ fill: "#8B92A3", fontSize: 11 }} allowDecimals={false} />
+        <Tooltip
+          contentStyle={{ background: "#1A1D24", border: "1px solid #333", borderRadius: 6 }}
+          labelStyle={{ color: "#E4E6EB" }}
+        />
+        <Bar dataKey="count" fill="#F2B84B" radius={[4, 4, 0, 0]} />
+      </BarChart>
+    </ResponsiveContainer>
+  </div>
+)}
 
         {loading && <p className="text-gray-500 text-sm">Loading scans…</p>}
         {error && <p className="text-red-400 text-sm">{error}</p>}
