@@ -148,24 +148,44 @@ function runAllDetectors() {
 function sendFindingsToBackend() {
   if (findings.length === 0) return;
 
-  fetch("http://localhost:3001/scans", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      url: window.location.href,
-      findings: findings
-    })
-  })
-    .then((res) => res.json())
-    .then((data) => console.log("Scan saved to backend:", data))
-    .catch((err) => console.error("Failed to save scan:", err));
+  chrome.runtime.sendMessage({
+    type: "SAVE_SCAN",
+    payload: { url: window.location.href, findings: findings }
+  });
 }
 
+let scanTimeout;
+
+function scheduleRescan() {
+  // Debounce: wait for the page to "settle" before re-scanning,
+  // so we don't run detectors dozens of times during rapid DOM changes
+  clearTimeout(scanTimeout);
+  scanTimeout = setTimeout(() => {
+    runAllDetectors();
+  }, 1000);
+}
+
+// Initial scan
 runAllDetectors();
+
+// Watch for dynamically added content (common on React/Vue-heavy sites)
+const observer = new MutationObserver(() => {
+  scheduleRescan();
+});
+
+observer.observe(document.body, {
+  childList: true,
+  subtree: true
+});
+
+// Send whatever we've found to the backend after things settle down
+// (5 seconds gives dynamic content time to load, then we stop watching so
+// we don't spam the backend forever on infinite-scroll pages)
 setTimeout(() => {
-  runAllDetectors();
   sendFindingsToBackend();
-}, 2000);
+  observer.disconnect();
+  console.log("Dark Pattern Detector: stopped watching for new content, final scan sent");
+}, 5000);
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "GET_FINDINGS") {

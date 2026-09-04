@@ -6,9 +6,13 @@ require("dotenv").config();
 const app = express();
 const PORT = 3001;
 
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Private-Network", "true");
+  next();
+});
+
 app.use(cors());
 app.use(express.json());
-
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false } // Supabase requires SSL
