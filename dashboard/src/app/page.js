@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip } from "recharts";
+
+const API = "http://localhost:3001";
 
 function confidenceStyle(confidence) {
   switch (confidence) {
@@ -32,27 +35,72 @@ function calculateStats(scans) {
   });
 
   const chartData = Object.entries(typeCounts).map(([type, count]) => ({ type, count }));
-
   return { chartData, confidenceCounts };
 }
 
 export default function Home() {
+  const { isLoaded, isSignedIn, getToken } = useAuth();
+
   const [scans, setScans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const [newToken, setNewToken] = useState(null);
+  const [tokenLoading, setTokenLoading] = useState(false);
+  const [tokenError, setTokenError] = useState(null);
+  const [copied, setCopied] = useState(false);
+
   useEffect(() => {
-    fetch("http://localhost:3001/scans")
-      .then((res) => res.json())
-      .then((data) => {
+    if (!isLoaded) return;
+    if (!isSignedIn) {
+      setLoading(false);
+      return;
+    }
+
+    async function loadScans() {
+      try {
+        // Ask Clerk for this user's session token and send it to our backend
+        const sessionToken = await getToken();
+        const res = await fetch(`${API}/scans`, {
+          headers: { Authorization: `Bearer ${sessionToken}` },
+        });
+        if (!res.ok) throw new Error("Request failed");
+        const data = await res.json();
         setScans(Array.isArray(data) ? data : []);
+      } catch {
+        setError("Could not load scans. Is your backend running?");
+      } finally {
         setLoading(false);
-      })
-      .catch(() => {
-        setError("Could not connect to backend. Is your server running?");
-        setLoading(false);
+      }
+    }
+
+    loadScans();
+  }, [isLoaded, isSignedIn, getToken]);
+
+  async function generateToken() {
+    setTokenLoading(true);
+    setTokenError(null);
+    try {
+      const sessionToken = await getToken();
+      const res = await fetch(`${API}/token`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${sessionToken}` },
       });
-  }, []);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Request failed");
+      setNewToken(data.token);
+      setCopied(false);
+    } catch {
+      setTokenError("Could not generate a token. Is your backend running?");
+    } finally {
+      setTokenLoading(false);
+    }
+  }
+
+  async function copyToken() {
+    await navigator.clipboard.writeText(newToken);
+    setCopied(true);
+  }
 
   const totalFindings = scans.reduce(
     (sum, scan) => sum + (Array.isArray(scan.findings) ? scan.findings.length : 0),
@@ -66,51 +114,98 @@ export default function Home() {
       <div className="max-w-2xl mx-auto">
         <div className="mb-10">
           <h1 className="text-xl font-semibold tracking-tight">Dark Pattern Detector</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            {scans.length} page{scans.length !== 1 ? "s" : ""} scanned · {totalFindings} pattern{totalFindings !== 1 ? "s" : ""} flagged
-          </p>
+          {isSignedIn && (
+            <p className="text-sm text-gray-500 mt-1">
+              {scans.length} page{scans.length !== 1 ? "s" : ""} scanned · {totalFindings} pattern{totalFindings !== 1 ? "s" : ""} flagged
+            </p>
+          )}
         </div>
 
-        {!loading && !error && scans.length > 0 && (
-  <div className="mb-10 grid grid-cols-3 gap-3">
-    <div className="border border-gray-800 rounded-lg p-4 bg-[#151821]">
-      <div className="text-2xl font-semibold text-red-400">{confidenceCounts.high}</div>
-      <div className="text-xs text-gray-500 mt-1">High risk</div>
-    </div>
-    <div className="border border-gray-800 rounded-lg p-4 bg-[#151821]">
-      <div className="text-2xl font-semibold text-amber-400">{confidenceCounts.medium}</div>
-      <div className="text-xs text-gray-500 mt-1">Medium risk</div>
-    </div>
-    <div className="border border-gray-800 rounded-lg p-4 bg-[#151821]">
-      <div className="text-2xl font-semibold text-gray-400">{confidenceCounts.low}</div>
-      <div className="text-xs text-gray-500 mt-1">Low risk</div>
-    </div>
-  </div>
-)}
+        {isLoaded && !isSignedIn && (
+          <div className="border border-dashed border-gray-700 rounded-lg p-8 text-center text-gray-500 text-sm">
+            Sign in to see your scan history and connect the extension.
+          </div>
+        )}
 
-{!loading && !error && chartData.length > 0 && (
-  <div className="mb-10 border border-gray-800 rounded-lg p-4 bg-[#151821]">
-    <h2 className="text-sm text-gray-400 mb-4">Pattern types found</h2>
-    <ResponsiveContainer width="100%" height={200}>
-      <BarChart data={chartData}>
-        <XAxis dataKey="type" tick={{ fill: "#8B92A3", fontSize: 11 }} />
-        <YAxis tick={{ fill: "#8B92A3", fontSize: 11 }} allowDecimals={false} />
-        <Tooltip
-          contentStyle={{ background: "#1A1D24", border: "1px solid #333", borderRadius: 6 }}
-          labelStyle={{ color: "#E4E6EB" }}
-        />
-        <Bar dataKey="count" fill="#F2B84B" radius={[4, 4, 0, 0]} />
-      </BarChart>
-    </ResponsiveContainer>
-  </div>
-)}
+        {isSignedIn && (
+          <div className="mb-10 border border-gray-800 rounded-lg p-5 bg-[#151821]">
+            <h2 className="text-sm text-gray-400 mb-1">Connect your extension</h2>
+            <p className="text-xs text-gray-600 mb-4">
+              Generate a personal token and paste it into the extension so your scans are saved to your account.
+              Generating a new token replaces the old one.
+            </p>
 
-        {loading && <p className="text-gray-500 text-sm">Loading scans…</p>}
+            <button
+              onClick={generateToken}
+              disabled={tokenLoading}
+              className="text-sm bg-amber-500/90 hover:bg-amber-400 text-black font-medium rounded px-4 py-2 disabled:opacity-50 cursor-pointer"
+            >
+              {tokenLoading ? "Generating…" : newToken ? "Regenerate token" : "Generate API token"}
+            </button>
+
+            {tokenError && <p className="text-red-400 text-xs mt-3">{tokenError}</p>}
+
+            {newToken && (
+              <div className="mt-4">
+                <div className="flex items-center gap-2">
+                  <code className="font-mono text-xs bg-black/40 border border-gray-800 rounded px-3 py-2 break-all flex-1">
+                    {newToken}
+                  </code>
+                  <button
+                    onClick={copyToken}
+                    className="text-xs border border-gray-700 rounded px-3 py-2 hover:bg-gray-800 cursor-pointer"
+                  >
+                    {copied ? "Copied" : "Copy"}
+                  </button>
+                </div>
+                <p className="text-xs text-amber-400/80 mt-2">
+                  Copy it now. For security it is only shown once and can't be retrieved later.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {isSignedIn && !loading && !error && scans.length > 0 && (
+          <div className="mb-10 grid grid-cols-3 gap-3">
+            <div className="border border-gray-800 rounded-lg p-4 bg-[#151821]">
+              <div className="text-2xl font-semibold text-red-400">{confidenceCounts.high}</div>
+              <div className="text-xs text-gray-500 mt-1">High risk</div>
+            </div>
+            <div className="border border-gray-800 rounded-lg p-4 bg-[#151821]">
+              <div className="text-2xl font-semibold text-amber-400">{confidenceCounts.medium}</div>
+              <div className="text-xs text-gray-500 mt-1">Medium risk</div>
+            </div>
+            <div className="border border-gray-800 rounded-lg p-4 bg-[#151821]">
+              <div className="text-2xl font-semibold text-gray-400">{confidenceCounts.low}</div>
+              <div className="text-xs text-gray-500 mt-1">Low risk</div>
+            </div>
+          </div>
+        )}
+
+        {isSignedIn && !loading && !error && chartData.length > 0 && (
+          <div className="mb-10 border border-gray-800 rounded-lg p-4 bg-[#151821]">
+            <h2 className="text-sm text-gray-400 mb-4">Pattern types found</h2>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={chartData}>
+                <XAxis dataKey="type" tick={{ fill: "#8B92A3", fontSize: 11 }} />
+                <YAxis tick={{ fill: "#8B92A3", fontSize: 11 }} allowDecimals={false} />
+                <Tooltip
+                  contentStyle={{ background: "#1A1D24", border: "1px solid #333", borderRadius: 6 }}
+                  labelStyle={{ color: "#E4E6EB" }}
+                />
+                <Bar dataKey="count" fill="#F2B84B" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {isSignedIn && loading && <p className="text-gray-500 text-sm">Loading scans…</p>}
         {error && <p className="text-red-400 text-sm">{error}</p>}
 
-        {!loading && !error && scans.length === 0 && (
+        {isSignedIn && !loading && !error && scans.length === 0 && (
           <div className="border border-dashed border-gray-700 rounded-lg p-8 text-center text-gray-500 text-sm">
-            No scans yet. Browse the web with the extension active to see results here.
+            No scans yet. Connect the extension with your token, then browse the web to see results here.
           </div>
         )}
 
